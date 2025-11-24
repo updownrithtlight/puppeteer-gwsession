@@ -1,82 +1,115 @@
 const puppeteer = require('puppeteer');
 
+// 简单的 sleep，避免用 waitFor / waitForTimeout 这些版本不兼容的 API
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function getGWSession() {
   const browser = await puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
+    headless: false, // 调试用，跑通再改 true
+    defaultViewport: { width: 1280, height: 900 },
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
 
   const page = await browser.newPage();
 
-  // 模拟正常浏览器 UA，避免被识别成奇怪客户端
-  await page.setUserAgent(
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-  );
+  const loginURL =
+    'https://sso.300.cn/CAS/login?service=https%3A%2F%2Fnew2023032411251363380.fastindexs.com%2Fnpgw%2Fvisitormanager%2Fintelligent%2Fmanager%2FfindBatchUserInfoList%3Fbackurl%3Dhttps%253A%252F%252Fnew2023032411251363380.fastindexs.com%252Fnpmanager%252Fhome%253Finstance%253DNEW2025092314063500326%26instance%3DNEW2025092314063500326%26tenantId%3D412049%26authCheck%3Dtrue%253F%26tenantIdStr%3D412044%252C412045%252C412046%252C412047%252C412048%252C412049%252C412050';
 
-  // Step 1：打开 SSO 登录页
-  const loginUrl =
-    'https://sso.300.cn/CAS/login?service=https%3A%2F%2Fnew-api-console.300.cn%2Fapi-portal%2Fsecurity%2Fmenu%2FgetHomeMenus';
+  console.log('⏳ 打开 SSO 登录页...');
+  await page.goto(loginURL, {
+    waitUntil: 'networkidle2',
+    timeout: 60000,
+  });
 
-  await page.goto(loginUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+  await sleep(1500);
 
-  const username = process.env.SSO_USERNAME;
-  const password = process.env.SSO_PASSWORD;
-
-  if (!username || !password) {
-    throw new Error('环境变量 SSO_USERNAME / SSO_PASSWORD 未设置');
+  // Step 1: 保底点一下「账号登录」tab
+  try {
+    console.log('🖱 点击账号登录 tab...');
+    await page.waitForSelector('#first-login .tab-item[name="member"]', { visible: true, timeout: 10000 });
+    await page.click('#first-login .tab-item[name="member"]');
+    await sleep(800);
+  } catch (e) {
+    console.log('⚠️ 没点到账号登录 tab（可能默认就是账号登录）：', e.message);
   }
 
-  // Step 2：等待账号密码登录表单出现
-  // 根据你截图的 DOM：form id="fm2"，里面有一个 text 和一个 password 输入框
-  await page.waitForSelector('#fm2 input[type="text"]', { timeout: 30000 });
-  await page.waitForSelector('#fm2 input[type="password"]', { timeout: 30000 });
+  // 读环境变量（顺便把多余的引号去掉）
+  let username = process.env.SSO_USERNAME || '';
+  let password = process.env.SSO_PASSWORD || '';
+  username = username.replace(/^"(.*)"$/, '$1');
+  password = password.replace(/^"(.*)"$/, '$1');
 
-  // 找到用户名输入框和密码输入框
-  const usernameSelector = '#fm2 input[type="text"]';
-  const passwordSelector = '#fm2 input[type="password"]';
+  console.log('👤 使用账号：', username);
+  console.log('⌨  使用密码：', password);
 
-  // 先清空一下（防止页面上已有默认值）
-  await page.click(usernameSelector, { clickCount: 3 });
-  await page.keyboard.press('Backspace');
+  // Step 2: 直接用 #username / #password
+  console.log('⌨ 输入账号 #username...');
+  await page.waitForSelector('#username', { visible: true, timeout: 30000 });
+  await page.click('#username', { clickCount: 3 }); // 选中原内容
+  await page.type('#username', username, { delay: 50 });
 
-  await page.type(usernameSelector, username, { delay: 30 });
+  console.log('⌨ 输入密码 #password...');
+  await page.waitForSelector('#password', { visible: true });
+  await page.click('#password', { clickCount: 3 });
+  await page.type('#password', password, { delay: 50 });
 
-  await page.click(passwordSelector, { clickCount: 3 });
-  await page.keyboard.press('Backspace');
+  console.log('🖱 点击登录按钮 .input-box-button...');
+  await page.waitForSelector('.input-box-button', { visible: true });
+  await page.click('.input-box-button');
 
-  await page.type(passwordSelector, password, { delay: 30 });
+  console.log('⏳ 等待登录结果...');
+  await page
+    .waitForNavigation({
+      waitUntil: 'networkidle2',
+      timeout: 60000,
+    })
+    .catch(() => {
+      console.log('⚠️ 登录可能是 Ajax，无完整跳转，忽略导航等待');
+    });
 
-  // Step 3：点击“立即登录”
-  // 对应你截图里的：
-  // <input type="button" class="input-box-button m20" onclick="loginCheck();" value="立即登录">
-  await page.waitForSelector('input.input-box-button.m20', { timeout: 30000 });
-  await page.click('input.input-box-button.m20');
-
-  // Step 4：等待跳转（CAS 登录成功后会跳回 service 地址）
-  await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 });
-
-  // Step 5：取 SSO Cookie
+  // Step 3: 拿 Cookie
+  console.log('🍪 获取登录后的 Cookie...');
   const cookies = await page.cookies();
 
-  // Step 6：带着 cookie 打开业务系统页面
   const targetPage = await browser.newPage();
   await targetPage.setCookie(...cookies);
 
-  await targetPage.goto(
-    'https://new2023032411251363380.fastindexs.com/npmanager/home?instance=NEW2025092314063500326',
-    { waitUntil: 'networkidle2', timeout: 60000 }
-  );
+  const homeURL =
+    'https://new2023032411251363380.fastindexs.com/npmanager/home?instance=NEW2025092314063500326';
+
+  console.log('⏳ 打开目标页面...');
+  await targetPage.goto(homeURL, {
+    waitUntil: 'networkidle2',
+    timeout: 60000,
+  });
 
   const targetCookies = await targetPage.cookies();
   const gwSession = targetCookies.find(c => c.name === 'GWSESSION');
 
-  await browser.close();
+  if (gwSession) {
+    console.log('🎉 成功获取 GWSESSION:', gwSession.value);
+  } else {
+    console.log('❌ 未找到 GWSESSION，当前 cookies:');
+    console.log(targetCookies);
+  }
+
+  // 调试阶段可以先不关
+  // await browser.close();
 
   if (!gwSession) {
-    throw new Error('未获取到 GWSESSION，可能未成功登录');
+    throw new Error('❌ 未找到 GWSESSION');
   }
 
   return gwSession.value;
+}
+
+// 直接执行该文件时自动跑一遍
+if (require.main === module) {
+  getGWSession()
+    .then(v => console.log('最终结果 =', v))
+    .catch(err => console.error(err));
 }
 
 module.exports = getGWSession;
