@@ -17,25 +17,24 @@ async function getGWSession() {
   const username = process.env.SSO_USERNAME;
   const password = process.env.SSO_PASSWORD;
 
-  // Step 2：确保进入账号密码登录表单（fm2）
-  await page.waitForSelector('#fm2');
+  // Step 2：输入账号（通过 placeholder）
+  await page.waitForSelector('input[placeholder="请输入账号"]');
+  await page.type('input[placeholder="请输入账号"]', username, { delay: 30 });
 
-  // 输入账号
-  await page.type('#fm2 #username', username, { delay: 50 });
+  // Step 3：输入密码
+  await page.type('input[placeholder="请输入密码"]', password, { delay: 30 });
 
-  // 输入密码
-  await page.type('#fm2 #password', password, { delay: 50 });
+  // Step 4：点击“立即登录”
+  await page.waitForSelector('input.input-box-button.m20');
+  await page.click('input.input-box-button.m20');
 
-  // 点击“立即登录”
-  await page.click('#fm2 .input-box-button.m20');
+  // Step 5：等待跳转
+  await page.waitForNavigation({ waitUntil: 'networkidle2' });
 
-  // 等待跳转
-  await page.waitForNavigation({ waitUntil: 'networkidle0' });
-
-  // Step 3：取 SSO Cookie
+  // Step 6：取 SSO Cookie
   const cookies = await page.cookies();
 
-  // Step 4：带着 cookie 打开业务系统页面
+  // Step 7：带 cookie 打开业务系统
   const targetPage = await browser.newPage();
   await targetPage.setCookie(...cookies);
 
