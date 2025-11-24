@@ -10,7 +10,7 @@ async function getGWSession() {
   const page = await browser.newPage();
 
   // Step 1: 登录 SSO 平台
-  await page.goto('https://sso.300.cn/CAS/login?service=https%3A%2F%2Fnew-api-console.300.cn%2Fapi-portal%2Fsecurity%2Fmenu%2FgetHomeMenus');
+  await page.goto('https://sso.300.cn/CAS/login?service=https%3A%2F%2Fnew-api-console.300.cn%2Fapi-portal%2Fsecurity%2Fmember%2FgetIndexMemberInfo%3F_t%3D1763957223893%26backurl%3Dhttps%253A%252F%252Fnew-console.300.cn%252Fproduct%252Fmenhu');
   await page.waitForSelector('div.tab-item[name="member"]');
   await page.click('div.tab-item[name="member"]');
 
