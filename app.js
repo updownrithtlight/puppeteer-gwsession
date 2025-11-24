@@ -1,5 +1,4 @@
 const puppeteer = require('puppeteer');
-const fs = require('fs');
 
 async function getGWSession() {
   const browser = await puppeteer.launch({
@@ -9,39 +8,50 @@ async function getGWSession() {
 
   const page = await browser.newPage();
 
-  // Step 1: 登录 SSO 平台
-  await page.goto('https://sso.300.cn/CAS/login?service=https%3A%2F%2Fnew-api-console.300.cn%2Fapi-portal%2Fsecurity%2Fmember%2FgetIndexMemberInfo%3F_t%3D1763957223893%26backurl%3Dhttps%253A%252F%252Fnew-console.300.cn%252Fproduct%252Fmenhu');
-  await page.waitForSelector('div.tab-item[name="member"]');
-  await page.click('div.tab-item[name="member"]');
+  // Step 1：打开 SSO 登录页
+  await page.goto(
+    'https://sso.300.cn/CAS/login?service=https%3A%2F%2Fnew-api-console.300.cn%2Fapi-portal%2Fsecurity%2Fmenu%2FgetHomeMenus',
+    { waitUntil: 'networkidle2' }
+  );
 
   const username = process.env.SSO_USERNAME;
   const password = process.env.SSO_PASSWORD;
 
-  await page.type('#username', username);
-  await page.type('#password', password);
-  await page.click('.input-box-button');
+  // Step 2：确保进入账号密码登录表单（fm2）
+  await page.waitForSelector('#fm2');
+
+  // 输入账号
+  await page.type('#fm2 #username', username, { delay: 50 });
+
+  // 输入密码
+  await page.type('#fm2 #password', password, { delay: 50 });
+
+  // 点击“立即登录”
+  await page.click('#fm2 .input-box-button.m20');
+
+  // 等待跳转
   await page.waitForNavigation({ waitUntil: 'networkidle0' });
 
-  // 获取 Step 1 登录后的 Cookie
+  // Step 3：取 SSO Cookie
   const cookies = await page.cookies();
 
-  // Step 2: 访问目标页面
+  // Step 4：带着 cookie 打开业务系统页面
   const targetPage = await browser.newPage();
   await targetPage.setCookie(...cookies);
-  await targetPage.goto('https://new2023032411251363380.fastindexs.com/npmanager/home?instance=NEW2023032411251363380', {
-    waitUntil: 'networkidle2',
-  });
+
+  await targetPage.goto(
+    'https://new2023032411251363380.fastindexs.com/npmanager/home?instance=NEW2025092314063500326',
+    { waitUntil: 'networkidle2' }
+  );
 
   const targetCookies = await targetPage.cookies();
   const gwSession = targetCookies.find(c => c.name === 'GWSESSION');
 
   await browser.close();
 
-  if (gwSession) {
-    return gwSession.value;
-  } else {
-    throw new Error('❌ 未获取到 GWSESSION');
-  }
+  if (!gwSession) throw new Error('❌ 未获取到 GWSESSION');
+
+  return gwSession.value;
 }
 
 module.exports = getGWSession;
