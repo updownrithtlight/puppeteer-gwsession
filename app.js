@@ -5,18 +5,18 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// async function getGWSession() {
-//   const browser = await puppeteer.launch({
-//     headless: false, // 调试用，跑通再改 true
-//     defaultViewport: { width: 1280, height: 900 },
-//     args: ['--no-sandbox', '--disable-setuid-sandbox'],
-//   });
-
+async function getGWSession() {
   const browser = await puppeteer.launch({
-  headless: true,
-  args: ['--no-sandbox', '--disable-setuid-sandbox'],
-});
-
+    headless: false, // ✅ 现在可以放心用有头模式（画在 Xvfb 上）
+    executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+    ],
+  });
+ 
 
   const page = await browser.newPage();
 
@@ -92,23 +92,11 @@ function sleep(ms) {
   });
 
   const targetCookies = await targetPage.cookies();
-  const gwSession = targetCookies.find(c => c.name === 'GWSESSION');
 
-  if (gwSession) {
-    console.log('🎉 成功获取 GWSESSION:', gwSession.value);
-  } else {
-    console.log('❌ 未找到 GWSESSION，当前 cookies:');
-    console.log(targetCookies);
-  }
-
-  // 调试阶段可以先不关
-  // await browser.close();
-
-  if (!gwSession) {
-    throw new Error('❌ 未找到 GWSESSION');
-  }
-
-  return gwSession.value;
+  console.log("📌 当前页面所有 cookies:");
+  console.log(targetCookies);
+ 
+  return targetCookies;
 }
 
 // 直接执行该文件时自动跑一遍
