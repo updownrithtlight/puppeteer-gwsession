@@ -1,0 +1,5 @@
+
+> puppeteer-wsession@1.0.0 start
+> node --env-file=.env server.js
+
+Server is running at http://0.0.0.0:3000
