@@ -1,29 +1,48 @@
+const fs = require('fs');
 const puppeteer = require('puppeteer');
 
-// 简单的 sleep，避免用 waitFor / waitForTimeout 这些版本不兼容的 API
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function getExecutablePath() {
+  if (process.env.CHROMIUM_PATH) {
+    return process.env.CHROMIUM_PATH;
+  }
+
+  const defaultPaths = [
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  ];
+
+  return defaultPaths.find(browserPath => fs.existsSync(browserPath));
+}
+
 async function getGWSession() {
-  const browser = await puppeteer.launch({
-    headless: false, // ✅ 现在可以放心用有头模式（画在 Xvfb 上）
-    executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
+  const launchOptions = {
+    headless: process.env.HEADLESS !== 'false',
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
     ],
-  });
- 
+  };
 
+  const executablePath = getExecutablePath();
+  if (executablePath) {
+    launchOptions.executablePath = executablePath;
+  }
+
+  const browser = await puppeteer.launch(launchOptions);
   const page = await browser.newPage();
 
   const loginURL =
     'https://sso.300.cn/CAS/login?service=https%3A%2F%2Fnew2023032411251363380.fastindexs.com%2Fnpgw%2Fvisitormanager%2Fintelligent%2Fmanager%2FfindBatchUserInfoList%3Fbackurl%3Dhttps%253A%252F%252Fnew2023032411251363380.fastindexs.com%252Fnpmanager%252Fhome%253Finstance%253DNEW2025092314063500326%26instance%3DNEW2025092314063500326%26tenantId%3D412049%26authCheck%3Dtrue%253F%26tenantIdStr%3D412044%252C412045%252C412046%252C412047%252C412048%252C412049%252C412050';
 
-  console.log('⏳ 打开 SSO 登录页...');
+  console.log('Opening SSO login page...');
   await page.goto(loginURL, {
     waitUntil: 'networkidle2',
     timeout: 60000,
@@ -31,52 +50,50 @@ async function getGWSession() {
 
   await sleep(1500);
 
-  // Step 1: 保底点一下「账号登录」tab
   try {
-    console.log('🖱 点击账号登录 tab...');
-    await page.waitForSelector('#first-login .tab-item[name="member"]', { visible: true, timeout: 10000 });
+    console.log('Clicking account login tab...');
+    await page.waitForSelector('#first-login .tab-item[name="member"]', {
+      visible: true,
+      timeout: 10000,
+    });
     await page.click('#first-login .tab-item[name="member"]');
     await sleep(800);
   } catch (e) {
-    console.log('⚠️ 没点到账号登录 tab（可能默认就是账号登录）：', e.message);
+    console.log('Account login tab was not clicked, probably already selected:', e.message);
   }
 
-  // 读环境变量（顺便把多余的引号去掉）
   let username = process.env.SSO_USERNAME || '';
   let password = process.env.SSO_PASSWORD || '';
   username = username.replace(/^"(.*)"$/, '$1');
   password = password.replace(/^"(.*)"$/, '$1');
 
-  console.log('👤 使用账号：', username);
-  console.log('⌨  使用密码：', password);
+  console.log('Using username:', username);
 
-  // Step 2: 直接用 #username / #password
-  console.log('⌨ 输入账号 #username...');
+  console.log('Typing username into #username...');
   await page.waitForSelector('#username', { visible: true, timeout: 30000 });
-  await page.click('#username', { clickCount: 3 }); // 选中原内容
+  await page.click('#username', { clickCount: 3 });
   await page.type('#username', username, { delay: 50 });
 
-  console.log('⌨ 输入密码 #password...');
+  console.log('Typing password into #password...');
   await page.waitForSelector('#password', { visible: true });
   await page.click('#password', { clickCount: 3 });
   await page.type('#password', password, { delay: 50 });
 
-  console.log('🖱 点击登录按钮 .input-box-button...');
+  console.log('Clicking login button...');
   await page.waitForSelector('.input-box-button', { visible: true });
   await page.click('.input-box-button');
 
-  console.log('⏳ 等待登录结果...');
+  console.log('Waiting for login result...');
   await page
     .waitForNavigation({
       waitUntil: 'networkidle2',
       timeout: 60000,
     })
     .catch(() => {
-      console.log('⚠️ 登录可能是 Ajax，无完整跳转，忽略导航等待');
+      console.log('No full navigation after login, continuing in case login used Ajax.');
     });
 
-  // Step 3: 拿 Cookie
-  console.log('🍪 获取登录后的 Cookie...');
+  console.log('Getting cookies after login...');
   const cookies = await page.cookies();
 
   const targetPage = await browser.newPage();
@@ -85,7 +102,7 @@ async function getGWSession() {
   const homeURL =
     'https://new2023032411251363380.fastindexs.com/npmanager/home?instance=NEW2025092314063500326';
 
-  console.log('⏳ 打开目标页面...');
+  console.log('Opening target page...');
   await targetPage.goto(homeURL, {
     waitUntil: 'networkidle2',
     timeout: 60000,
@@ -93,16 +110,15 @@ async function getGWSession() {
 
   const targetCookies = await targetPage.cookies();
 
-  console.log("📌 当前页面所有 cookies:");
+  console.log('Current target page cookies:');
   console.log(targetCookies);
- 
+
   return targetCookies;
 }
 
-// 直接执行该文件时自动跑一遍
 if (require.main === module) {
   getGWSession()
-    .then(v => console.log('最终结果 =', v))
+    .then(value => console.log('Final result =', value))
     .catch(err => console.error(err));
 }
 
