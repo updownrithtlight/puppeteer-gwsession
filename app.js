@@ -36,6 +36,20 @@ async function captureDebug(page, name) {
   console.log(`${name} html:`, htmlPath);
 }
 
+async function assertAccessAllowed(page) {
+  const content = await page.content();
+  const isRestricted =
+    content.includes('Restricted Access') ||
+    content.includes('Tencent Cloud EdgeOne') ||
+    content.includes('Request ID:');
+
+  if (isRestricted) {
+    throw new Error(
+      'SSO page was blocked by Tencent Cloud EdgeOne. The server IP/security policy must be allowed before Puppeteer can log in.'
+    );
+  }
+}
+
 async function getGWSession() {
   const launchOptions = {
     headless: process.env.HEADLESS !== 'false',
@@ -69,6 +83,7 @@ async function getGWSession() {
 
     await sleep(1500);
     await captureDebug(page, 'sso-after-goto');
+    await assertAccessAllowed(page);
 
     try {
       console.log('Clicking account login tab...');

@@ -3,7 +3,7 @@ FROM node:18-slim
 ENV NODE_ENV=production
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV CHROMIUM_PATH=/usr/bin/chromium
-ENV HEADLESS=true
+ENV HEADLESS=false
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -29,6 +29,7 @@ RUN apt-get update \
       libxext6 \
       libxfixes3 \
       libxrandr2 \
+      xvfb \
       xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
@@ -41,4 +42,4 @@ COPY . .
 
 EXPOSE 3000
 
-CMD ["node", "server.js"]
+CMD ["xvfb-run", "-a", "--server-args=-screen 0 1365x768x24", "node", "server.js"]
