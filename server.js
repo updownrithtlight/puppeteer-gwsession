@@ -1,6 +1,7 @@
 const express = require('express');
 const { createClient } = require('redis');
 const getGWSession = require('./app');
+const getMadeInChinaCookies = require('./madeinchina');
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -8,8 +9,13 @@ const host = process.env.HOST || '0.0.0.0';
 
 const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
 const redisKey = process.env.REDIS_KEY || 'gw:wsession';
+const madeInChinaRedisKey = process.env.MIC_REDIS_KEY || 'madeinchina:cookies';
 const defaultTtlSeconds = Number(process.env.REDIS_TTL_SECONDS || 3600);
 const ttlCookieNames = (process.env.REDIS_TTL_COOKIE_NAMES || 'GWSESSION')
+  .split(',')
+  .map(name => name.trim())
+  .filter(Boolean);
+const madeInChinaTtlCookieNames = (process.env.MIC_REDIS_TTL_COOKIE_NAMES || '')
   .split(',')
   .map(name => name.trim())
   .filter(Boolean);
@@ -20,10 +26,10 @@ redis.on('error', err => {
   console.error('Redis error:', err.message);
 });
 
-function getCookieTtlSeconds(cookies) {
+function getCookieTtlSeconds(cookies, cookieNames = ttlCookieNames) {
   const nowSeconds = Math.floor(Date.now() / 1000);
 
-  const ttlCookies = cookies.filter(cookie => ttlCookieNames.includes(cookie.name));
+  const ttlCookies = cookies.filter(cookie => cookieNames.includes(cookie.name));
   const candidates = ttlCookies.length > 0 ? ttlCookies : cookies;
 
   const futureExpires = candidates
@@ -37,19 +43,20 @@ function getCookieTtlSeconds(cookies) {
   return Math.max(1, Math.min(...futureExpires) - nowSeconds);
 }
 
-async function saveSessionToRedis(session) {
+async function saveSessionToRedis(session, key = redisKey, cookieNames = ttlCookieNames) {
   if (!redis.isOpen) {
     await redis.connect();
   }
 
-  const ttlSeconds = getCookieTtlSeconds(session);
+  const ttlSeconds = getCookieTtlSeconds(session, cookieNames);
   const payload = {
+    cookies: session,
     wsession: session,
     savedAt: new Date().toISOString(),
     expiresInSeconds: ttlSeconds,
   };
 
-  await redis.set(redisKey, JSON.stringify(payload), {
+  await redis.set(key, JSON.stringify(payload), {
     EX: ttlSeconds,
   });
 
@@ -65,6 +72,27 @@ app.get('/get-wsession', async (req, res) => {
       wsession: session,
       redis: {
         key: redisKey,
+        ttlSeconds,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/get-madeinchina-cookies', async (req, res) => {
+  try {
+    const cookies = await getMadeInChinaCookies();
+    const ttlSeconds = await saveSessionToRedis(
+      cookies,
+      madeInChinaRedisKey,
+      madeInChinaTtlCookieNames
+    );
+
+    res.json({
+      cookies,
+      redis: {
+        key: madeInChinaRedisKey,
         ttlSeconds,
       },
     });
@@ -89,6 +117,30 @@ app.get('/wsession-cache', async (req, res) => {
 
     res.json({
       key: redisKey,
+      ttlSeconds,
+      value: JSON.parse(value),
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/madeinchina-cookies-cache', async (req, res) => {
+  try {
+    if (!redis.isOpen) {
+      await redis.connect();
+    }
+
+    const value = await redis.get(madeInChinaRedisKey);
+    const ttlSeconds = await redis.ttl(madeInChinaRedisKey);
+
+    if (!value) {
+      res.status(404).json({ error: 'No cached Made-in-China cookies found', key: madeInChinaRedisKey });
+      return;
+    }
+
+    res.json({
+      key: madeInChinaRedisKey,
       ttlSeconds,
       value: JSON.parse(value),
     });
